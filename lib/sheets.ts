@@ -35,15 +35,15 @@ function parseCSV(text: string): Record<string, string>[] {
 }
 
 export async function fetchTimeline(sheetBase: string, gid: string): Promise<TimelineRow[]> {
-  const url = `${sheetBase}?gid=${gid}&single=true&output=csv`;
-  const res = await fetch(url, { next: { revalidate: 60 } });
+  const url = `${sheetBase}?gid=${gid}&single=true&output=csv&t=${Date.now()}`;
+  const res = await fetch(url, { cache: 'no-store' });
   const text = await res.text();
   return parseCSV(text) as unknown as TimelineRow[];
 }
 
 export async function fetchEvents(sheetBase: string, gid: string): Promise<EventRow[]> {
-  const url = `${sheetBase}?gid=${gid}&single=true&output=csv`;
-  const res = await fetch(url, { next: { revalidate: 60 } });
+  const url = `${sheetBase}?gid=${gid}&single=true&output=csv&t=${Date.now()}`;
+  const res = await fetch(url, { cache: 'no-store' });
   const text = await res.text();
   return parseCSV(text) as unknown as EventRow[];
 }

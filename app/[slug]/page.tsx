@@ -1,5 +1,4 @@
 import { CLIENTS } from '@/lib/clients';
-import { fetchTimeline, fetchEvents } from '@/lib/sheets';
 import { notFound } from 'next/navigation';
 import PortalClient from './PortalClient';
 
@@ -27,16 +26,5 @@ export default async function PortalPage({ params, searchParams }: Props) {
     );
   }
 
-  const [timeline, events] = await Promise.all([
-    fetchTimeline(client.sheetBase, client.timelineGid),
-    fetchEvents(client.sheetBase, client.eventsGid),
-  ]);
-
-  return (
-    <PortalClient
-      client={client}
-      timeline={timeline}
-      events={events}
-    />
-  );
+  return <PortalClient client={client} />;
 }

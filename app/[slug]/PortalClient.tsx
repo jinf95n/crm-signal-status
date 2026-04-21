@@ -1,44 +1,81 @@
 'use client';
 
+import { useEffect, useState, useCallback } from 'react';
 import { ClientConfig } from '@/lib/clients';
-import { TimelineRow, EventRow } from '@/lib/sheets';
+import { TimelineRow, EventRow, fetchTimeline, fetchEvents } from '@/lib/sheets';
 import { timeAgo, formatDateTime, isThisMonth, isToday, getLast14Days } from '@/lib/utils';
 
 type Props = {
   client: ClientConfig;
-  timeline: TimelineRow[];
-  events: EventRow[];
 };
 
-export default function PortalClient({ client, timeline, events }: Props) {
+const POLL_INTERVAL = 30000; // 30 segundos
+
+export default function PortalClient({ client }: Props) {
+  const [timeline, setTimeline] = useState<TimelineRow[]>([]);
+  const [events, setEvents] = useState<EventRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  const loadData = useCallback(async () => {
+    try {
+      const [t, e] = await Promise.all([
+        fetchTimeline(client.sheetBase, client.timelineGid),
+        fetchEvents(client.sheetBase, client.eventsGid),
+      ]);
+      setTimeline(t);
+      setEvents(e);
+      setLastUpdated(new Date());
+    } catch (err) {
+      console.error('Error fetching data:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [client]);
+
+  useEffect(() => {
+    loadData();
+    const interval = setInterval(loadData, POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [loadData]);
+
   const thisMonth = events.filter(e => isThisMonth(e.timestamp));
   const today = events.filter(e => isToday(e.timestamp));
   const lastEvent = events[events.length - 1];
   const hasActive = timeline.some(r => r.estado === 'active');
 
-  // Conteo por tipo
   const counts: Record<string, number> = {};
   thisMonth.forEach(e => { counts[e.event_name] = (counts[e.event_name] || 0) + 1; });
   const maxCount = Math.max(...Object.values(counts), 1);
   const types = Object.keys(counts).length;
 
-  // Gráfico 14 días
   const days = getLast14Days();
-  const dayCounts = days.map(d => events.filter(e => new Date(e.timestamp).toDateString() === d.toDateString()).length);
+  const dayCounts = days.map(d =>
+    events.filter(e => new Date(e.timestamp).toDateString() === d.toDateString()).length
+  );
   const maxDay = Math.max(...dayCounts, 1);
 
-  // EMQ hint
   const emqHint = client.emq < 5
     ? 'Se puede mejorar agregando ciudad y país en los perfiles de HubSpot.'
     : client.emq < 7
     ? 'Buen puntaje. Se puede mejorar con más datos de ubicación en HubSpot.'
     : 'Excelente puntaje de coincidencia.';
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#080e14] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-8 h-8 border-2 border-[rgba(0,210,180,0.2)] border-t-[#00d4b4] rounded-full animate-spin" />
+          <div className="text-sm text-[#6b8099]">Cargando datos del portal...</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#080e14] text-[#e8f0f8]" style={{ fontFamily: "'DM Sans', sans-serif" }}>
       <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
 
-      {/* Glow */}
       <div className="fixed top-0 left-1/2 -translate-x-1/2 w-[600px] h-[400px] pointer-events-none z-0"
         style={{ background: 'radial-gradient(ellipse, rgba(0,212,180,0.06) 0%, transparent 70%)' }} />
 
@@ -92,7 +129,8 @@ export default function PortalClient({ client, timeline, events }: Props) {
             },
           ].map((m, i) => (
             <div key={i} className="relative bg-[#0d1620] border border-[rgba(0,210,180,0.12)] rounded-2xl p-5 overflow-hidden hover:border-[rgba(0,210,180,0.28)] transition-colors">
-              <div className="absolute top-0 left-0 right-0 h-px" style={{ background: 'linear-gradient(90deg, transparent, rgba(0,212,180,0.3), transparent)' }} />
+              <div className="absolute top-0 left-0 right-0 h-px"
+                style={{ background: 'linear-gradient(90deg, transparent, rgba(0,212,180,0.3), transparent)' }} />
               <div className="w-8 h-8 rounded-lg flex items-center justify-center mb-3.5" style={{ background: m.iconBg }}>
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none">{m.icon}</svg>
               </div>
@@ -114,7 +152,6 @@ export default function PortalClient({ client, timeline, events }: Props) {
           <p className="text-sm text-[#6b8099] mb-5 max-w-lg leading-relaxed">
             Cada etapa representa un hito del proceso de integración de tu CRM con Meta Ads. Una vez en producción, el sistema opera de forma completamente automática.
           </p>
-
           <div>
             {timeline.map((row, i) => {
               const isLast = i === timeline.length - 1;
@@ -165,7 +202,6 @@ export default function PortalClient({ client, timeline, events }: Props) {
             Cada señal representa un momento clave en el recorrido de uno de tus leads. Meta usa estos datos para optimizar a quiénes les muestra tus anuncios, priorizando perfiles similares a los que realmente convierten.
           </p>
 
-          {/* Stats */}
           <div className="grid grid-cols-3 gap-2.5 mb-4">
             {[
               { label: 'Total de señales', value: thisMonth.length, color: '#00d4b4' },
@@ -179,25 +215,25 @@ export default function PortalClient({ client, timeline, events }: Props) {
             ))}
           </div>
 
-          {/* EMQ */}
           <div className="bg-[#0d1620] border border-[rgba(0,210,180,0.12)] rounded-xl p-4 mb-4">
             <div className="flex justify-between items-start mb-2.5">
               <div>
                 <div className="text-sm font-medium mb-0.5">Calidad de coincidencia (Event Match Quality)</div>
                 <div className="text-xs text-[#6b8099]">Qué tan bien Meta puede identificar a tus leads para optimizar los anuncios</div>
               </div>
-              <div className="text-xl font-medium text-[#f59e0b] ml-4 flex-shrink-0" style={{ fontFamily: "'DM Mono', monospace" }}>{client.emq} / 10</div>
+              <div className="text-xl font-medium text-[#f59e0b] ml-4 flex-shrink-0"
+                style={{ fontFamily: "'DM Mono', monospace" }}>{client.emq} / 10</div>
             </div>
             <div className="h-1.5 bg-[#111d2a] rounded-full overflow-hidden mb-1.5">
               <div className="h-full rounded-full" style={{ width: `${(client.emq / 10) * 100}%`, background: 'linear-gradient(90deg, #00d4b4, #00a8e8)' }} />
             </div>
-            <div className="flex justify-between text-[10px] text-[#3a5068] mb-2" style={{ fontFamily: "'DM Mono', monospace" }}>
+            <div className="flex justify-between text-[10px] text-[#3a5068] mb-2"
+              style={{ fontFamily: "'DM Mono', monospace" }}>
               {['0','2','4','6','8','10'].map(n => <span key={n}>{n}</span>)}
             </div>
             <div className="text-[11px] text-[#3a5068]">{emqHint}</div>
           </div>
 
-          {/* Last event */}
           {lastEvent && (
             <div className="bg-[#0d1620] border border-[rgba(0,210,180,0.12)] rounded-xl p-4 flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
@@ -212,15 +248,15 @@ export default function PortalClient({ client, timeline, events }: Props) {
                   <div className="text-xs text-[#6b8099]">{lastEvent.stage_label} · deal {lastEvent.deal_id?.split('_')[1]}</div>
                 </div>
               </div>
-              <div className="text-[11px] text-[#3a5068] text-right flex-shrink-0 ml-4" style={{ fontFamily: "'DM Mono', monospace" }}>
+              <div className="text-[11px] text-[#3a5068] text-right flex-shrink-0 ml-4"
+                style={{ fontFamily: "'DM Mono', monospace" }}>
                 {timeAgo(lastEvent.timestamp)}<br />{formatDateTime(lastEvent.timestamp)}
               </div>
             </div>
           )}
 
-          {/* Events table */}
           <div className="bg-[#0d1620] border border-[rgba(0,210,180,0.12)] rounded-xl overflow-hidden mb-4">
-            <div className="grid gap-0 text-[10px] uppercase tracking-widest text-[#3a5068] px-4 py-2.5 bg-[#111d2a] border-b border-[rgba(0,210,180,0.12)]"
+            <div className="grid text-[10px] uppercase tracking-widest text-[#3a5068] px-4 py-2.5 bg-[#111d2a] border-b border-[rgba(0,210,180,0.12)]"
               style={{ gridTemplateColumns: '1fr 70px 100px 90px' }}>
               <div>Etapa → Evento Meta</div>
               <div className="text-right">Señales</div>
@@ -236,16 +272,19 @@ export default function PortalClient({ client, timeline, events }: Props) {
                   const pct = Math.round((count / maxCount) * 100);
                   const isLow = count < 3;
                   return (
-                    <div key={name} className="grid px-4 py-3 border-b border-[rgba(0,210,180,0.08)] last:border-0 hover:bg-[rgba(0,212,180,0.04)] transition-colors items-center"
+                    <div key={name}
+                      className="grid px-4 py-3 border-b border-[rgba(0,210,180,0.08)] last:border-0 hover:bg-[rgba(0,212,180,0.04)] transition-colors items-center"
                       style={{ gridTemplateColumns: '1fr 70px 100px 90px' }}>
                       <div className="flex items-center gap-2 text-sm">
                         <div className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isLow ? 'bg-[#3a5068]' : 'bg-[#00d4b4]'}`} />
                         {name}
                       </div>
-                      <div className="text-sm font-medium text-right" style={{ fontFamily: "'DM Mono', monospace" }}>{count}</div>
+                      <div className="text-sm font-medium text-right"
+                        style={{ fontFamily: "'DM Mono', monospace" }}>{count}</div>
                       <div className="pr-3">
                         <div className="h-1 bg-[#111d2a] rounded-full">
-                          <div className={`h-full rounded-full ${isLow ? 'bg-[#3a5068]' : 'bg-[#00d4b4]'}`} style={{ width: `${pct}%` }} />
+                          <div className={`h-full rounded-full ${isLow ? 'bg-[#3a5068]' : 'bg-[#00d4b4]'}`}
+                            style={{ width: `${pct}%` }} />
                         </div>
                       </div>
                       <div className={`text-[11px] ${isLow ? 'text-[#3a5068]' : 'text-[#22d37a]'}`}>
@@ -257,7 +296,6 @@ export default function PortalClient({ client, timeline, events }: Props) {
             )}
           </div>
 
-          {/* Chart */}
           <div className="bg-[#0d1620] border border-[rgba(0,210,180,0.12)] rounded-xl p-4">
             <div className="text-xs text-[#6b8099] mb-4">
               Evolución diaria — últimos 14 días (total: {events.length} eventos)
@@ -272,7 +310,8 @@ export default function PortalClient({ client, timeline, events }: Props) {
                       minHeight: '3px',
                     }} />
                   </div>
-                  <div className="text-[9px] text-[#3a5068]" style={{ fontFamily: "'DM Mono', monospace" }}>{d.getDate()}</div>
+                  <div className="text-[9px] text-[#3a5068]"
+                    style={{ fontFamily: "'DM Mono', monospace" }}>{d.getDate()}</div>
                 </div>
               ))}
             </div>
@@ -283,7 +322,7 @@ export default function PortalClient({ client, timeline, events }: Props) {
         <div className="flex items-center justify-between py-6 border-t border-[rgba(0,210,180,0.12)] mb-10">
           <div className="text-[11px] text-[#3a5068]">Valy Agency · CRM Signal · status.valy.agency</div>
           <div className="text-[11px] text-[#3a5068]" style={{ fontFamily: "'DM Mono', monospace" }}>
-            Actualizado: {new Date().toLocaleString('es-AR')}
+            Actualizado: {lastUpdated.toLocaleString('es-AR')}
           </div>
         </div>
 
