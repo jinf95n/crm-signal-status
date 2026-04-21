@@ -9,22 +9,25 @@ type Props = {
   client: ClientConfig;
 };
 
-const POLL_INTERVAL = 30000; // 30 segundos
+type PortalData = {
+  timeline: TimelineRow[];
+  events: EventRow[];
+};
+
+const POLL_INTERVAL = 30000;
 
 export default function PortalClient({ client }: Props) {
-  const [timeline, setTimeline] = useState<TimelineRow[]>([]);
-  const [events, setEvents] = useState<EventRow[]>([]);
+  const [data, setData] = useState<PortalData | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
 
   const loadData = useCallback(async () => {
     try {
-      const [t, e] = await Promise.all([
+      const [timeline, events] = await Promise.all([
         fetchTimeline(client.sheetBase, client.timelineGid),
         fetchEvents(client.sheetBase, client.eventsGid),
       ]);
-      setTimeline(t);
-      setEvents(e);
+      setData({ timeline, events });
       setLastUpdated(new Date());
     } catch (err) {
       console.error('Error fetching data:', err);
@@ -38,6 +41,9 @@ export default function PortalClient({ client }: Props) {
     const interval = setInterval(loadData, POLL_INTERVAL);
     return () => clearInterval(interval);
   }, [loadData]);
+
+  const timeline = data?.timeline ?? [];
+  const events = data?.events ?? [];
 
   const thisMonth = events.filter(e => isThisMonth(e.timestamp));
   const today = events.filter(e => isToday(e.timestamp));
